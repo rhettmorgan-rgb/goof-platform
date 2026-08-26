@@ -33,6 +33,22 @@ on:
     # "0 6 * * 1" is standard cron syntax: minute=0, hour=6, day-of-month=*
     # (any), month=* (any), day-of-week=1 (Monday) — i.e. 6:00 AM every Monday.
 
+permissions:
+# Controls what the automatic GITHUB_TOKEN (a temporary credential GitHub
+# mints for each run) is allowed to do. Without this block the token is
+# read-only, and the "Upload SARIF" steps below fail with
+# "Resource not accessible by integration" - writing to the Security tab
+# needs an explicit grant.
+#
+# Listing permissions explicitly also means every UNLISTED permission is
+# set to none, so this both fixes the upload AND narrows the token to the
+# least privilege the workflow actually needs.
+  contents: read
+  # Enough for actions/checkout to clone the repo. Not "write" - nothing
+  # here pushes commits.
+  security-events: write
+  # What upload-sarif requires to publish findings to the Security tab.
+
 env:
 # Top-level key: environment variables available to every step in every
 # job below, unless a job/step overrides them.

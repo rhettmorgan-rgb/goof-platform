@@ -36,6 +36,14 @@ on:
     # NOTE: there's no "push:" or "pull_request:" trigger at all here — that's
     # the mechanism that actually keeps this off the normal push/PR path.
 
+permissions:
+# Same block, same reason as the targeted file: without it the
+# GITHUB_TOKEN is read-only and every "Upload SARIF" step fails with
+# "Resource not accessible by integration". Naming permissions explicitly
+# also zeroes out every one not listed.
+  contents: read
+  security-events: write
+
 env:
   SNYK_OAUTH_CLIENT_ID: ${{ secrets.SNYK_OAUTH_CLIENT_ID }}
   SNYK_OAUTH_CLIENT_SECRET: ${{ secrets.SNYK_OAUTH_CLIENT_SECRET }}
