@@ -22,6 +22,11 @@ on:
     # one line, equivalent to writing a dash-list across multiple lines.
     # This restricts the push trigger to only the "main" branch.
   pull_request:
+  workflow_dispatch:
+  # Adds a manual "Run workflow" button in the Actions tab, and enables
+  # `gh workflow run snyk-targeted.yml`. Needs no settings under it — its
+  # presence alone enables the button. Useful for re-running a scan on
+  # demand without having to push a commit.
   # A second key under "on:". No value/indentation follows it, meaning
   # "trigger on pull requests with default settings" (any branch, any PR
   # action like opened/synchronize).
