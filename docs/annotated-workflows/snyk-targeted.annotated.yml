@@ -304,7 +304,12 @@ jobs:
       - name: snyk monitor
         if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         working-directory: SCA/Java
-        run: snyk monitor --maven-aggregate-project --project-name=goof-platform-sca-java
+        run: snyk monitor --maven-aggregate-project
+        # No --project-name here: it is rejected alongside
+        # --maven-aggregate-project (SNYK-CLI-0004), because an aggregate scan
+        # produces one Snyk project per Maven module, so a single name cannot
+        # apply. Snyk names them from the POM coordinates instead
+        # (io.github.snyk:todolist-core, :todolist-web-common, :todolist-web-struts).
 
   code:
   # A different kind of scan: static analysis of the code you WROTE, rather

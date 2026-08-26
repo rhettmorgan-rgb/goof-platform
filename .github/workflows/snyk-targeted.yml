@@ -107,7 +107,7 @@ jobs:
       - name: snyk monitor
         if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         working-directory: SCA/Java
-        run: snyk monitor --maven-aggregate-project --project-name=goof-platform-sca-java
+        run: snyk monitor --maven-aggregate-project
 
   code:
     name: Static analysis (Snyk Code / Code dir)
