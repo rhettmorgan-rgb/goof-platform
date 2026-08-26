@@ -83,16 +83,9 @@ jobs:
       - run: npm install -g snyk
       - name: Authenticate (OAuth service account)
         run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
-      # Run from the aggregator root (SCA/Java) so todolist-core and
-      # todolist-web-common are in the Maven reactor - todolist-web-struts
-      # depends on todolist-web-common, so resolving the leaf module alone
-      # fails.
-      - name: Resolve Maven dependencies
-        working-directory: SCA/Java
-        run: mvn -B dependency:resolve
       - name: snyk test
         working-directory: SCA/Java
-        run: snyk test --all-projects --severity-threshold=high --sarif-file-output=snyk-sca-java.sarif
+        run: snyk test --maven-aggregate-project --severity-threshold=high --sarif-file-output=snyk-sca-java.sarif
       - name: Upload SARIF
         if: always()
         uses: github/codeql-action/upload-sarif@v3
@@ -102,7 +95,7 @@ jobs:
       - name: snyk monitor
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         working-directory: SCA/Java
-        run: snyk monitor --all-projects --project-name=goof-platform-sca-java
+        run: snyk monitor --maven-aggregate-project --project-name=goof-platform-sca-java
 
   code:
     name: Static analysis (Snyk Code / Code dir)

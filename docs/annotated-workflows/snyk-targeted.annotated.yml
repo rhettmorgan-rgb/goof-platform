@@ -246,14 +246,6 @@ jobs:
       - run: npm install -g snyk
       - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
         run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
-      - name: Resolve Maven dependencies
-        working-directory: SCA/Java
-        # Runs from the AGGREGATOR root, not the leaf module. todolist-web-struts
-        # depends on sibling module todolist-web-common, so Maven must have all
-        # modules in its "reactor" (the set of projects it builds together) or
-        # that dependency can't resolve. The parent + sibling POMs were missing
-        # from this repo entirely and had to be reconstructed - see SCA/Java/pom.xml.
-        run: mvn -B dependency:resolve
         # NEW: "mvn" is the Maven build tool (comes preinstalled on GitHub's
         # ubuntu-latest runners). "-B" means "batch mode" — suppresses
         # interactive prompts, since nothing in CI can respond to them.
@@ -263,7 +255,14 @@ jobs:
         # dependency tree for the scan below.
       - name: snyk test
         working-directory: SCA/Java
-        run: snyk test --all-projects --severity-threshold=high --sarif-file-output=snyk-sca-java.sarif
+        run: snyk test --maven-aggregate-project --severity-threshold=high --sarif-file-output=snyk-sca-java.sarif
+        # "--maven-aggregate-project" tells Snyk to treat SCA/Java as a single
+        # multi-module Maven build and run `mvn dependency:tree` at its root.
+        # The earlier approach (a separate `mvn dependency:resolve` step) failed:
+        # resolve treats each module independently and demanded an installed
+        # todolist-core jar that the reactor had not produced. This flag also
+        # avoids compiling - useful here, since the code targets Java 1.5 and
+        # modern JDKs refuse that source level.
         # "--all-projects" because there are now three POMs under SCA/Java
         # (the aggregator and its modules) rather than a single one.
         # No --file or --package-manager flag needed here — Snyk auto-
@@ -277,7 +276,7 @@ jobs:
       - name: snyk monitor
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         working-directory: SCA/Java
-        run: snyk monitor --all-projects --project-name=goof-platform-sca-java
+        run: snyk monitor --maven-aggregate-project --project-name=goof-platform-sca-java
 
   code:
   # A different kind of scan: static analysis of the code you WROTE, rather
