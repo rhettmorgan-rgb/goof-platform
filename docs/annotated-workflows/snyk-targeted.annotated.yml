@@ -200,17 +200,24 @@ jobs:
           python-version: "3.9"
       - run: npm install -g snyk         # installs the Snyk CLI globally
       - name: Install pinned Python packages
-        run: pip install --no-deps -r SCA/Python/requirements.txt || true
+        run: |
+          grep -vE "^[[:space:]]*(#|$)" SCA/Python/requirements.txt | while IFS= read -r pkg; do
+            pip install --no-deps "$pkg" || echo "skipped: $pkg"
+          done
         # Snyk's pip scan resolves against packages actually present in the
-        # environment. With none installed it treats every requirement as
-        # unresolved and reports zero findings - a silently empty scan.
+        # environment. With none installed it reports zero findings - a
+        # silently empty scan that reads like "no vulnerabilities".
         #
-        # "--no-deps" installs each pinned version exactly as written instead
-        # of re-resolving the dependency tree (these pins are old enough to
-        # conflict with one another, so a normal install fails outright).
-        # "|| true" tolerates the few that no longer build on a modern
-        # interpreter; those get skipped by --skip-unresolved below rather
-        # than failing the whole job.
+        # Each package installs on its own line rather than via
+        # `pip install -r requirements.txt`, because that form is
+        # all-or-nothing: lxml 4.5.0 needs libxslt system headers the runner
+        # doesn't have, and that one build failure aborted the entire install,
+        # leaving nothing for Snyk to resolve.
+        #
+        # "--no-deps" installs each pinned version verbatim instead of
+        # re-resolving the tree (these pins are old enough to conflict).
+        # "|| echo skipped" records what could not build and moves on, so one
+        # unbuildable package costs one result rather than all of them.
       - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
         run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk test

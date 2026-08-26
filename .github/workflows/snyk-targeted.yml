@@ -56,12 +56,16 @@ jobs:
       - run: npm install -g snyk
       - name: Install pinned Python packages
         # Snyk's pip scan resolves against packages present in the environment;
-        # with none installed it reports every one as unresolved and finds
-        # nothing. "--no-deps" installs each pinned version as-is instead of
-        # re-resolving the tree (these pins conflict with each other), and
-        # "|| true" tolerates the handful that no longer build on a modern
-        # interpreter - those are skipped by --skip-unresolved below.
-        run: pip install --no-deps -r SCA/Python/requirements.txt || true
+        # with none installed it finds nothing. Installed one-per-line because
+        # `pip install -r` is all-or-nothing - lxml 4.5.0 needs libxslt headers
+        # that aren't on the runner, and that single build failure otherwise
+        # aborts the whole install. "--no-deps" keeps each pinned version exactly
+        # as written (these pins conflict with each other), and the "|| echo"
+        # lets a package that can't build be skipped rather than failing the job.
+        run: |
+          grep -vE "^[[:space:]]*(#|$)" SCA/Python/requirements.txt | while IFS= read -r pkg; do
+            pip install --no-deps "$pkg" || echo "skipped: $pkg"
+          done
       - name: Authenticate (OAuth service account)
         run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk test
