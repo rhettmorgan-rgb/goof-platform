@@ -166,15 +166,24 @@ jobs:
           # the workflow — without unique categories, each job's upload
           # would overwrite the previous one's results in the Security tab.
       - name: snyk monitor
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        # "always()" is load-bearing here, not decoration. In GitHub Actions a
+        # custom "if:" STILL implies success() unless you override it - so
+        # without always(), this step is skipped whenever an earlier step in
+        # the job failed. The snyk test step above fails by design every time
+        # it finds a high-severity issue, which on this repo is always. The
+        # result: monitor never ran, and nothing ever reached the Snyk
+        # platform, silently.
+        #
         # "github.ref" and "github.event_name" are built-in context
         # variables GitHub provides automatically — no setup needed.
         # "github.ref" is the full name of the branch/tag being acted on;
         # "refs/heads/main" is its full form (not just "main"). "&&" is
         # logical AND. Together this condition means: only run this step
-        # when the workflow was triggered by an actual push TO main —
-        # skip it for pull requests or the weekly schedule, since those
-        # shouldn't update Snyk's tracked "current state" of the project.
+        # when we're on main and NOT in a pull request - so pushes, manual
+        # runs, and the weekly schedule all report to Snyk, but a PR from a
+        # fork never does. Originally this read "== 'push'", which meant
+        # manually-triggered runs were excluded too.
         working-directory: SCA/JS
         run: snyk monitor --project-name=goof-platform-sca-js
         # Unlike "snyk test" (a one-off pass/fail check), "snyk monitor"
@@ -234,7 +243,7 @@ jobs:
           sarif_file: snyk-sca-python.sarif   # written to repo root this time, since no working-directory was set
           category: snyk-sca-python           # unique label, distinct from every other job's category
       - name: snyk monitor
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'   # only on a real push to main
+        if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'   # only on a real push to main
         run: snyk monitor --file=SCA/Python/requirements.txt --package-manager=pip --skip-unresolved=true --project-name=goof-platform-sca-python
         # Same --file/--package-manager hint needed here too, for the same
         # reason as the snyk test step above.
@@ -293,7 +302,7 @@ jobs:
           sarif_file: SCA/Java/snyk-sca-java.sarif
           category: snyk-sca-java
       - name: snyk monitor
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         working-directory: SCA/Java
         run: snyk monitor --maven-aggregate-project --project-name=goof-platform-sca-java
 
@@ -366,7 +375,7 @@ jobs:
           sarif_file: snyk-container.sarif
           category: snyk-container
       - name: snyk container monitor
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: snyk container monitor node:6-stretch --file=Container/Dockerfile --project-name=goof-platform-container
         # "container monitor" (two words, a subcommand of container) is the
         # image-scanning equivalent of the plain "snyk monitor" used in the
@@ -396,7 +405,7 @@ jobs:
           sarif_file: snyk-container-smoke.sarif
           category: snyk-container-smoke     # must differ from "snyk-container" above, or one upload overwrites the other
       - name: snyk container monitor
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: snyk container monitor alpine --file=Code/test/smoke/Dockerfile --project-name=goof-platform-container-smoke
 
   iac:
@@ -426,7 +435,7 @@ jobs:
           sarif_file: snyk-iac.sarif
           category: snyk-iac
       - name: snyk iac monitor
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: snyk iac test IaC --report --project-name=goof-platform-iac
         # NEW pattern: "snyk iac" has no separate "monitor" subcommand the
         # way SCA and container scanning do. Instead, adding "--report" to

@@ -124,7 +124,7 @@ jobs:
           sarif_file: snyk-sca-all.sarif
           category: snyk-sca-all
       - name: snyk monitor --all-projects
-        if: github.event_name != 'pull_request'
+        if: always() && github.event_name != 'pull_request'
         # "!=" is the NOT-EQUAL operator — the opposite check from the
         # targeted file's "== 'push'" conditions. This says "run on
         # anything EXCEPT a pull request" (so: the scheduled run, or a
@@ -262,5 +262,5 @@ jobs:
           sarif_file: snyk-iac-all.sarif
           category: snyk-iac-all
       - name: snyk iac monitor
-        if: github.event_name != 'pull_request'
+        if: always() && github.event_name != 'pull_request'
         run: snyk iac test . --report --project-name=goof-platform-iac-all
