@@ -197,8 +197,20 @@ jobs:
         # Snyk's Python scanner needs a real interpreter present; without one
         # the scan aborts with "Missing required packages" (SNYK-OS-PYTHON-0013).
         with:
-          python-version: "3.11"
+          python-version: "3.9"
       - run: npm install -g snyk         # installs the Snyk CLI globally
+      - name: Install pinned Python packages
+        run: pip install --no-deps -r SCA/Python/requirements.txt || true
+        # Snyk's pip scan resolves against packages actually present in the
+        # environment. With none installed it treats every requirement as
+        # unresolved and reports zero findings - a silently empty scan.
+        #
+        # "--no-deps" installs each pinned version exactly as written instead
+        # of re-resolving the dependency tree (these pins are old enough to
+        # conflict with one another, so a normal install fails outright).
+        # "|| true" tolerates the few that no longer build on a modern
+        # interpreter; those get skipped by --skip-unresolved below rather
+        # than failing the whole job.
       - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
         run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk test

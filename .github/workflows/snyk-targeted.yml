@@ -52,8 +52,16 @@ jobs:
           node-version: 20
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.9"
       - run: npm install -g snyk
+      - name: Install pinned Python packages
+        # Snyk's pip scan resolves against packages present in the environment;
+        # with none installed it reports every one as unresolved and finds
+        # nothing. "--no-deps" installs each pinned version as-is instead of
+        # re-resolving the tree (these pins conflict with each other), and
+        # "|| true" tolerates the handful that no longer build on a modern
+        # interpreter - those are skipped by --skip-unresolved below.
+        run: pip install --no-deps -r SCA/Python/requirements.txt || true
       - name: Authenticate (OAuth service account)
         run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk test
