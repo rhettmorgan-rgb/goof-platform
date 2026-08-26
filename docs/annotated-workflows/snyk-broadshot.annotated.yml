@@ -37,9 +37,12 @@ on:
     # the mechanism that actually keeps this off the normal push/PR path.
 
 env:
-  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-  # Identical to the targeted file: reads the same repo secret so the Snyk
-  # CLI can authenticate.
+  SNYK_OAUTH_CLIENT_ID: ${{ secrets.SNYK_OAUTH_CLIENT_ID }}
+  SNYK_OAUTH_CLIENT_SECRET: ${{ secrets.SNYK_OAUTH_CLIENT_SECRET }}
+  # Identical to the targeted file: reads the same two repo secrets (the
+  # OAuth 2.0 service-account credentials) so the Snyk CLI can authenticate.
+  # See snyk-targeted.annotated.yml for the full explanation of why OAuth
+  # is used here rather than a static API token.
 
 jobs:
   sca:
@@ -62,6 +65,8 @@ jobs:
           distribution: temurin
           java-version: "11"
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)   # every job runs on its own fresh VM, so each must authenticate
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: Resolve dependencies for every Maven project found
         run: |
           # The "|" right after "run:" is YAML's BLOCK SCALAR syntax — it
@@ -131,6 +136,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)   # every job runs on its own fresh VM, so each must authenticate
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk code test
         run: snyk code test . --severity-threshold=high --sarif-file-output=snyk-code-all.sarif
         # The argument is "." (current directory = repo root) instead of
@@ -153,6 +160,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)   # every job runs on its own fresh VM, so each must authenticate
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: Discover and scan every Dockerfile
         run: |
           mkdir -p sarif-results
@@ -230,6 +239,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)   # every job runs on its own fresh VM, so each must authenticate
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk iac test
         run: snyk iac test . --severity-threshold=high --sarif-file-output=snyk-iac-all.sarif
         # Argument is "." (whole repo) instead of "IaC" or

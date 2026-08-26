@@ -11,7 +11,8 @@ on:
     - cron: "0 6 1 * *"
 
 env:
-  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  SNYK_OAUTH_CLIENT_ID: ${{ secrets.SNYK_OAUTH_CLIENT_ID }}
+  SNYK_OAUTH_CLIENT_SECRET: ${{ secrets.SNYK_OAUTH_CLIENT_SECRET }}
 
 jobs:
   sca:
@@ -30,6 +31,8 @@ jobs:
           distribution: temurin
           java-version: "11"
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: Resolve dependencies for every Maven project found
         run: |
           find . -iname "pom.xml" -not -path "*/node_modules/*" | while IFS= read -r pom; do
@@ -57,6 +60,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk code test
         run: snyk code test . --severity-threshold=high --sarif-file-output=snyk-code-all.sarif
       - name: Upload SARIF
@@ -75,6 +80,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: Discover and scan every Dockerfile
         run: |
           mkdir -p sarif-results
@@ -105,6 +112,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk iac test
         run: snyk iac test . --severity-threshold=high --sarif-file-output=snyk-iac-all.sarif
       - name: Upload SARIF

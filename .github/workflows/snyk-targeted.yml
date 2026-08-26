@@ -8,7 +8,8 @@ on:
     - cron: "0 6 * * 1"
 
 env:
-  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  SNYK_OAUTH_CLIENT_ID: ${{ secrets.SNYK_OAUTH_CLIENT_ID }}
+  SNYK_OAUTH_CLIENT_SECRET: ${{ secrets.SNYK_OAUTH_CLIENT_SECRET }}
 
 jobs:
   sca-js:
@@ -20,6 +21,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk test
         working-directory: SCA/JS
         run: snyk test --severity-threshold=high --sarif-file-output=snyk-sca-js.sarif
@@ -43,6 +46,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk test
         run: snyk test --file=SCA/Python/requirements.txt --package-manager=pip --severity-threshold=high --sarif-file-output=snyk-sca-python.sarif
       - name: Upload SARIF
@@ -68,6 +73,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: Resolve Maven dependencies
         working-directory: SCA/Java/todolist-web-struts
         run: mvn -B dependency:resolve
@@ -94,6 +101,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk code test
         run: snyk code test Code --severity-threshold=high --sarif-file-output=snyk-code.sarif
       - name: Upload SARIF
@@ -112,6 +121,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       # The Dockerfile's build context isn't self-contained in this repo (COPY .
       # expects an app source tree that isn't checked in under Container/), so we
       # scan the base image it declares (node:6-stretch) plus Dockerfile hygiene
@@ -138,6 +149,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - run: docker pull alpine
       - name: snyk container test
         run: snyk container test alpine --file=Code/test/smoke/Dockerfile --severity-threshold=high --sarif-file-output=snyk-container-smoke.sarif
@@ -160,6 +173,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk iac test
         run: snyk iac test IaC --severity-threshold=high --sarif-file-output=snyk-iac.sarif
       - name: Upload SARIF
@@ -181,6 +196,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk iac test
         run: snyk iac test .github/workflows --severity-threshold=high --sarif-file-output=snyk-iac-workflows.sarif
       - name: Upload SARIF

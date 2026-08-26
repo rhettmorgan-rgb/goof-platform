@@ -36,12 +36,19 @@ on:
 env:
 # Top-level key: environment variables available to every step in every
 # job below, unless a job/step overrides them.
-  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  SNYK_OAUTH_CLIENT_ID: ${{ secrets.SNYK_OAUTH_CLIENT_ID }}
+  SNYK_OAUTH_CLIENT_SECRET: ${{ secrets.SNYK_OAUTH_CLIENT_SECRET }}
   # "${{ ... }}" is GitHub Actions' expression syntax — it evaluates
-  # whatever's inside at runtime. "secrets.SNYK_TOKEN" pulls the encrypted
-  # secret you configure in the repo's Settings > Secrets. The Snyk CLI
-  # automatically reads the SNYK_TOKEN env var for authentication, so we
-  # never have to write a token into the file itself.
+  # whatever's inside at runtime. "secrets.NAME" pulls an encrypted secret
+  # you configure in the repo's Settings > Secrets and variables > Actions.
+  # The values never appear in this file, and GitHub automatically masks
+  # them if anything tries to print them to the build log.
+  #
+  # These two belong to a Snyk OAuth 2.0 SERVICE ACCOUNT — a non-human
+  # account made for automation. Snyk recommends OAuth over a static API
+  # key for CI/CD: the client id/secret are exchanged at the start of each
+  # run for a short-lived (1 hour) access token, rather than a permanent
+  # token that would stay valid forever if it ever leaked.
 
 jobs:
 # Top-level key: everything that actually runs lives under here, organized
@@ -81,6 +88,25 @@ jobs:
         # this just executes a literal shell command on the runner.
         # This one installs the Snyk CLI globally via npm so the `snyk`
         # command becomes available in later steps.
+      - name: Authenticate (OAuth service account)
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
+        # Logs the CLI in before any scanning happens. "--auth-type=oauth"
+        # selects the OAuth flow (rather than a static API token);
+        # --client-id and --client-secret must always be supplied together,
+        # and are only valid alongside --auth-type=oauth.
+        #
+        # "$SNYK_OAUTH_CLIENT_ID" is shell syntax for "the value of the
+        # environment variable named SNYK_OAUTH_CLIENT_ID" — set in the
+        # "env:" block at the top of this file. Reading them from env vars
+        # (rather than pasting "${{ secrets.X }}" directly into the command)
+        # keeps the literal values out of the command line.
+        #
+        # The double quotes matter: they keep each value as a single
+        # argument even if it contained a space or special character.
+        #
+        # This step repeats in every job below, because each job runs on
+        # its own fresh, isolated virtual machine — authentication done in
+        # one job is not carried over to any other.
       - name: snyk test
         # An optional label for THIS step, shown in logs — distinct from
         # the job-level "name:" above; every step can have its own.
@@ -147,6 +173,8 @@ jobs:
         with:
           node-version: 20               # Node version for installing the snyk CLI itself
       - run: npm install -g snyk         # installs the Snyk CLI globally
+      - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk test
         run: snyk test --file=SCA/Python/requirements.txt --package-manager=pip --severity-threshold=high --sarif-file-output=snyk-sca-python.sarif
         # No "working-directory" this time — instead the manifest's path is
@@ -190,6 +218,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: Resolve Maven dependencies
         working-directory: SCA/Java/todolist-web-struts
         run: mvn -B dependency:resolve
@@ -227,6 +257,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk code test
         run: snyk code test Code --severity-threshold=high --sarif-file-output=snyk-code.sarif
         # "Code" here is a plain command-line ARGUMENT (the folder to scan),
@@ -256,6 +288,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       # The Dockerfile's build context isn't self-contained in this repo (COPY .
       # expects an app source tree that isn't checked in under Container/), so we
       # scan the base image it declares (node:6-stretch) plus Dockerfile hygiene
@@ -299,6 +333,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - run: docker pull alpine
       - name: snyk container test
         run: snyk container test alpine --file=Code/test/smoke/Dockerfile --severity-threshold=high --sarif-file-output=snyk-container-smoke.sarif
@@ -325,6 +361,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk iac test
         run: snyk iac test IaC --severity-threshold=high --sarif-file-output=snyk-iac.sarif
         # "IaC" (no --) is the folder argument again, same pattern as the
@@ -357,6 +395,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g snyk
+      - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
+        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk iac test
         run: snyk iac test .github/workflows --severity-threshold=high --sarif-file-output=snyk-iac-workflows.sarif
       - name: Upload SARIF
