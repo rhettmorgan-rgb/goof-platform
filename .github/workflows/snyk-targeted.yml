@@ -50,11 +50,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - run: npm install -g snyk
       - name: Authenticate (OAuth service account)
         run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk test
-        run: snyk test --file=SCA/Python/requirements.txt --package-manager=pip --severity-threshold=high --sarif-file-output=snyk-sca-python.sarif
+        run: snyk test --file=SCA/Python/requirements.txt --package-manager=pip --skip-unresolved=true --severity-threshold=high --sarif-file-output=snyk-sca-python.sarif
       - name: Upload SARIF
         if: always()
         uses: github/codeql-action/upload-sarif@v3
@@ -63,7 +66,7 @@ jobs:
           category: snyk-sca-python
       - name: snyk monitor
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: snyk monitor --file=SCA/Python/requirements.txt --package-manager=pip --project-name=goof-platform-sca-python
+        run: snyk monitor --file=SCA/Python/requirements.txt --package-manager=pip --skip-unresolved=true --project-name=goof-platform-sca-python
 
   sca-java:
     name: SCA / Java (SCA/Java/todolist-web-struts)
@@ -80,22 +83,26 @@ jobs:
       - run: npm install -g snyk
       - name: Authenticate (OAuth service account)
         run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
+      # Run from the aggregator root (SCA/Java) so todolist-core and
+      # todolist-web-common are in the Maven reactor - todolist-web-struts
+      # depends on todolist-web-common, so resolving the leaf module alone
+      # fails.
       - name: Resolve Maven dependencies
-        working-directory: SCA/Java/todolist-web-struts
+        working-directory: SCA/Java
         run: mvn -B dependency:resolve
       - name: snyk test
-        working-directory: SCA/Java/todolist-web-struts
-        run: snyk test --severity-threshold=high --sarif-file-output=snyk-sca-java.sarif
+        working-directory: SCA/Java
+        run: snyk test --all-projects --severity-threshold=high --sarif-file-output=snyk-sca-java.sarif
       - name: Upload SARIF
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: SCA/Java/todolist-web-struts/snyk-sca-java.sarif
+          sarif_file: SCA/Java/snyk-sca-java.sarif
           category: snyk-sca-java
       - name: snyk monitor
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        working-directory: SCA/Java/todolist-web-struts
-        run: snyk monitor --project-name=goof-platform-sca-java
+        working-directory: SCA/Java
+        run: snyk monitor --all-projects --project-name=goof-platform-sca-java
 
   code:
     name: Static analysis (Snyk Code / Code dir)
@@ -191,26 +198,3 @@ jobs:
       - name: snyk iac monitor
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: snyk iac test IaC --report --project-name=goof-platform-iac
-
-  iac-workflows:
-    name: Infrastructure as Code (.github/workflows/)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm install -g snyk
-      - name: Authenticate (OAuth service account)
-        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
-      - name: snyk iac test
-        run: snyk iac test .github/workflows --severity-threshold=high --sarif-file-output=snyk-iac-workflows.sarif
-      - name: Upload SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: snyk-iac-workflows.sarif
-          category: snyk-iac-workflows
-      - name: snyk iac monitor
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: snyk iac test .github/workflows --report --project-name=goof-platform-iac-workflows

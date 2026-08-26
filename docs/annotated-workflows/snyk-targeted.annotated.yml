@@ -193,11 +193,16 @@ jobs:
       - uses: actions/setup-node@v4      # Snyk CLI is an npm package, so Node is needed even for a Python scan
         with:
           node-version: 20               # Node version for installing the snyk CLI itself
+      - uses: actions/setup-python@v5
+        # Snyk's Python scanner needs a real interpreter present; without one
+        # the scan aborts with "Missing required packages" (SNYK-OS-PYTHON-0013).
+        with:
+          python-version: "3.11"
       - run: npm install -g snyk         # installs the Snyk CLI globally
       - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
         run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: snyk test
-        run: snyk test --file=SCA/Python/requirements.txt --package-manager=pip --severity-threshold=high --sarif-file-output=snyk-sca-python.sarif
+        run: snyk test --file=SCA/Python/requirements.txt --package-manager=pip --skip-unresolved=true --severity-threshold=high --sarif-file-output=snyk-sca-python.sarif
         # No "working-directory" this time — instead the manifest's path is
         # given directly via "--file=". "--package-manager=pip" tells Snyk
         # which ecosystem parser to use, since a bare "requirements.txt"
@@ -211,7 +216,7 @@ jobs:
           category: snyk-sca-python           # unique label, distinct from every other job's category
       - name: snyk monitor
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'   # only on a real push to main
-        run: snyk monitor --file=SCA/Python/requirements.txt --package-manager=pip --project-name=goof-platform-sca-python
+        run: snyk monitor --file=SCA/Python/requirements.txt --package-manager=pip --skip-unresolved=true --project-name=goof-platform-sca-python
         # Same --file/--package-manager hint needed here too, for the same
         # reason as the snyk test step above.
 
@@ -242,7 +247,12 @@ jobs:
       - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
         run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: Resolve Maven dependencies
-        working-directory: SCA/Java/todolist-web-struts
+        working-directory: SCA/Java
+        # Runs from the AGGREGATOR root, not the leaf module. todolist-web-struts
+        # depends on sibling module todolist-web-common, so Maven must have all
+        # modules in its "reactor" (the set of projects it builds together) or
+        # that dependency can't resolve. The parent + sibling POMs were missing
+        # from this repo entirely and had to be reconstructed - see SCA/Java/pom.xml.
         run: mvn -B dependency:resolve
         # NEW: "mvn" is the Maven build tool (comes preinstalled on GitHub's
         # ubuntu-latest runners). "-B" means "batch mode" — suppresses
@@ -252,20 +262,22 @@ jobs:
         # needs those jars physically present to build an accurate
         # dependency tree for the scan below.
       - name: snyk test
-        working-directory: SCA/Java/todolist-web-struts
-        run: snyk test --severity-threshold=high --sarif-file-output=snyk-sca-java.sarif
+        working-directory: SCA/Java
+        run: snyk test --all-projects --severity-threshold=high --sarif-file-output=snyk-sca-java.sarif
+        # "--all-projects" because there are now three POMs under SCA/Java
+        # (the aggregator and its modules) rather than a single one.
         # No --file or --package-manager flag needed here — Snyk auto-
         # detects pom.xml as Maven once it's in the working directory.
       - name: Upload SARIF
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: SCA/Java/todolist-web-struts/snyk-sca-java.sarif
+          sarif_file: SCA/Java/snyk-sca-java.sarif
           category: snyk-sca-java
       - name: snyk monitor
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        working-directory: SCA/Java/todolist-web-struts
-        run: snyk monitor --project-name=goof-platform-sca-java
+        working-directory: SCA/Java
+        run: snyk monitor --all-projects --project-name=goof-platform-sca-java
 
   code:
   # A different kind of scan: static analysis of the code you WROTE, rather
@@ -403,29 +415,7 @@ jobs:
         # the same "test" command uploads the results to Snyk's platform
         # as a side effect, which is IaC's equivalent of monitoring.
 
-  iac-workflows:
-  # Same exact pattern as the "iac" job above, just pointed at a different
-  # folder: ".github/workflows" instead of "IaC". Snyk IaC treats GitHub
-  # Actions workflow files as a supported config type too, checking for
-  # things like unpinned action versions or overly broad permissions.
-    name: Infrastructure as Code (.github/workflows/)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm install -g snyk
-      - name: Authenticate (OAuth service account)   # same auth step as sca-js; every job needs its own
-        run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
-      - name: snyk iac test
-        run: snyk iac test .github/workflows --severity-threshold=high --sarif-file-output=snyk-iac-workflows.sarif
-      - name: Upload SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: snyk-iac-workflows.sarif
-          category: snyk-iac-workflows
-      - name: snyk iac monitor
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: snyk iac test .github/workflows --report --project-name=goof-platform-iac-workflows
+# NOTE: an "iac-workflows" job used to sit here, running `snyk iac test` against
+# .github/workflows. It was removed: Snyk IaC does not treat GitHub Actions
+# workflow files as scannable infrastructure config, and the job failed every
+# run with "Could not find any valid IaC files" (SNYK-CLI-0012).

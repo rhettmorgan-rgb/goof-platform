@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Reconstructed aggregator/parent POM.
+
+  todolist-web-struts/pom.xml declares <parent>io.github.snyk:todolist-mvc</parent>,
+  but that POM was never committed to this repo (nor to the upstream it was
+  forked from), so Maven could not read the project at all and Snyk's Java
+  scan had nothing to resolve.
+
+  This file exists purely to satisfy Maven's reactor so the real, committed
+  dependency declarations in todolist-web-struts can be resolved. It
+  deliberately declares NO third-party dependencies or versions of its own:
+  inventing them would make Snyk report vulnerabilities for libraries that
+  were never actually pinned by this project.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>io.github.snyk</groupId>
+    <artifactId>todolist-mvc</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>todolist-mvc</name>
+
+    <modules>
+        <module>todolist-core</module>
+        <module>todolist-web-common</module>
+        <module>todolist-web-struts</module>
+    </modules>
+</project>
