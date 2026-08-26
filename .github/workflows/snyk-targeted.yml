@@ -1,0 +1,194 @@
+name: Snyk Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+
+env:
+  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+jobs:
+  sca-js:
+    name: SCA / JavaScript (SCA/JS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: snyk test
+        working-directory: SCA/JS
+        run: snyk test --severity-threshold=high --sarif-file-output=snyk-sca-js.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: SCA/JS/snyk-sca-js.sarif
+          category: snyk-sca-js
+      - name: snyk monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        working-directory: SCA/JS
+        run: snyk monitor --project-name=goof-platform-sca-js
+
+  sca-python:
+    name: SCA / Python (SCA/Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: snyk test
+        run: snyk test --file=SCA/Python/requirements.txt --package-manager=pip --severity-threshold=high --sarif-file-output=snyk-sca-python.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-sca-python.sarif
+          category: snyk-sca-python
+      - name: snyk monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: snyk monitor --file=SCA/Python/requirements.txt --package-manager=pip --project-name=goof-platform-sca-python
+
+  sca-java:
+    name: SCA / Java (SCA/Java/todolist-web-struts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: Resolve Maven dependencies
+        working-directory: SCA/Java/todolist-web-struts
+        run: mvn -B dependency:resolve
+      - name: snyk test
+        working-directory: SCA/Java/todolist-web-struts
+        run: snyk test --severity-threshold=high --sarif-file-output=snyk-sca-java.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: SCA/Java/todolist-web-struts/snyk-sca-java.sarif
+          category: snyk-sca-java
+      - name: snyk monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        working-directory: SCA/Java/todolist-web-struts
+        run: snyk monitor --project-name=goof-platform-sca-java
+
+  code:
+    name: Static analysis (Snyk Code / Code dir)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: snyk code test
+        run: snyk code test Code --severity-threshold=high --sarif-file-output=snyk-code.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-code.sarif
+          category: snyk-code
+
+  container:
+    name: Container (Container/Dockerfile base image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      # The Dockerfile's build context isn't self-contained in this repo (COPY .
+      # expects an app source tree that isn't checked in under Container/), so we
+      # scan the base image it declares (node:6-stretch) plus Dockerfile hygiene
+      # instead of building a derived image.
+      - run: docker pull node:6-stretch
+      - name: snyk container test
+        run: snyk container test node:6-stretch --file=Container/Dockerfile --severity-threshold=high --sarif-file-output=snyk-container.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-container.sarif
+          category: snyk-container
+      - name: snyk container monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: snyk container monitor node:6-stretch --file=Container/Dockerfile --project-name=goof-platform-container
+
+  container-smoke:
+    name: Container (Code/test/smoke/Dockerfile base image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - run: docker pull alpine
+      - name: snyk container test
+        run: snyk container test alpine --file=Code/test/smoke/Dockerfile --severity-threshold=high --sarif-file-output=snyk-container-smoke.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-container-smoke.sarif
+          category: snyk-container-smoke
+      - name: snyk container monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: snyk container monitor alpine --file=Code/test/smoke/Dockerfile --project-name=goof-platform-container-smoke
+
+  iac:
+    name: Infrastructure as Code (IaC/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: snyk iac test
+        run: snyk iac test IaC --severity-threshold=high --sarif-file-output=snyk-iac.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-iac.sarif
+          category: snyk-iac
+      - name: snyk iac monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: snyk iac test IaC --report --project-name=goof-platform-iac
+
+  iac-workflows:
+    name: Infrastructure as Code (.github/workflows/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: snyk iac test
+        run: snyk iac test .github/workflows --severity-threshold=high --sarif-file-output=snyk-iac-workflows.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-iac-workflows.sarif
+          category: snyk-iac-workflows
+      - name: snyk iac monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: snyk iac test .github/workflows --report --project-name=goof-platform-iac-workflows

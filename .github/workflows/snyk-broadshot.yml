@@ -1,0 +1,118 @@
+name: Snyk Security Scan (Broadshot)
+
+# Unscoped counterpart to snyk-targeted.yml: instead of pointing at known
+# manifests/Dockerfiles/IaC paths, each job discovers targets across the whole
+# repo. That makes it slower and less predictable (new files change what gets
+# scanned), so it's kept off the push/PR path and only runs on demand or
+# monthly - snyk-targeted.yml stays the fast, deterministic gate on every push/PR.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 1 * *"
+
+env:
+  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+jobs:
+  sca:
+    name: SCA (all manifests, whole repo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+      - run: npm install -g snyk
+      - name: Resolve dependencies for every Maven project found
+        run: |
+          find . -iname "pom.xml" -not -path "*/node_modules/*" | while IFS= read -r pom; do
+            echo "Resolving $pom"
+            mvn -B -f "$pom" dependency:resolve || true
+          done
+      - name: snyk test --all-projects
+        run: snyk test --all-projects --severity-threshold=high --sarif-file-output=snyk-sca-all.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-sca-all.sarif
+          category: snyk-sca-all
+      - name: snyk monitor --all-projects
+        if: github.event_name != 'pull_request'
+        run: snyk monitor --all-projects
+
+  code:
+    name: Static analysis (Snyk Code, whole repo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: snyk code test
+        run: snyk code test . --severity-threshold=high --sarif-file-output=snyk-code-all.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-code-all.sarif
+          category: snyk-code-all
+
+  container:
+    name: Container (every Dockerfile found, whole repo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: Discover and scan every Dockerfile
+        run: |
+          mkdir -p sarif-results
+          status=0
+          find . -iname "Dockerfile*" -not -path "*/node_modules/*" | while IFS= read -r dockerfile; do
+            base_image=$(grep -im1 '^FROM' "$dockerfile" | awk '{print $2}')
+            safe_name=$(echo "$dockerfile" | tr '/.' '__')
+            echo "Scanning $dockerfile (base image: $base_image)"
+            docker pull "$base_image" || true
+            snyk container test "$base_image" --file="$dockerfile" \
+              --severity-threshold=high \
+              --sarif-file-output="sarif-results/${safe_name}.sarif" || status=1
+          done
+          exit "$status"
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: sarif-results
+          category: snyk-container-all
+
+  iac:
+    name: Infrastructure as Code (whole repo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: snyk iac test
+        run: snyk iac test . --severity-threshold=high --sarif-file-output=snyk-iac-all.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-iac-all.sarif
+          category: snyk-iac-all
+      - name: snyk iac monitor
+        if: github.event_name != 'pull_request'
+        run: snyk iac test . --report --project-name=goof-platform-iac-all
