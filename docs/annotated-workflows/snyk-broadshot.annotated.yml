@@ -1,0 +1,247 @@
+# ============================================================================
+# ANNOTATED REFERENCE COPY — not read by GitHub Actions as a real workflow
+# unless you remove ".annotated" from the filename. This file exists purely
+# so every line is explained; the actual working file is snyk-broadshot.yml.
+#
+# This file reuses a lot of syntax already explained in
+# snyk-targeted.annotated.yml (uses:, with:, if: always(), SARIF upload,
+# etc.) — comments here focus on what's NEW in this file: bash loops,
+# command substitution, and multi-line shell blocks.
+# ============================================================================
+
+name: Snyk Security Scan (Broadshot)
+# Same "name:" concept as the targeted file — just the label shown in the
+# Actions tab, distinguishing this workflow from the other one.
+
+# Unscoped counterpart to snyk-targeted.yml: instead of pointing at known
+# manifests/Dockerfiles/IaC paths, each job discovers targets across the whole
+# repo. That makes it slower and less predictable (new files change what gets
+# scanned), so it's kept off the push/PR path and only runs on demand or
+# monthly - snyk-targeted.yml stays the fast, deterministic gate on every push/PR.
+# (^ this comment block is a real design-decision note that exists in the
+# actual working file too — it's not a syntax explainer like the rest of
+# this annotated copy.)
+on:
+  workflow_dispatch:
+  # NEW trigger type, not used in the targeted file: this adds a manual
+  # "Run workflow" button in GitHub's Actions tab. No value/settings needed
+  # under it — its mere presence enables the button. This is how you can
+  # kick off this scan on demand instead of waiting for the schedule.
+  schedule:
+    - cron: "0 6 1 * *"
+    # Cron fields again: minute=0, hour=6, day-of-month=1, month=* (any),
+    # day-of-week=* (any) — i.e. 6:00 AM on the 1st of every month. Deliberately
+    # far less frequent than the targeted file's weekly schedule, since this
+    # workflow does a lot more work per run.
+    # NOTE: there's no "push:" or "pull_request:" trigger at all here — that's
+    # the mechanism that actually keeps this off the normal push/PR path.
+
+env:
+  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  # Identical to the targeted file: reads the same repo secret so the Snyk
+  # CLI can authenticate.
+
+jobs:
+  sca:
+    name: SCA (all manifests, whole repo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4          # pulls the repo's code onto the runner
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20                 # needed to install/run the snyk CLI (an npm package)
+      - uses: actions/setup-python@v5
+        # NEW here vs. the targeted file: this job scans JS, Python, AND Java
+        # manifests all in one job (since it doesn't know in advance which
+        # ones exist), so it installs every toolchain it might need,
+        # up front, rather than one per job.
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+      - run: npm install -g snyk
+      - name: Resolve dependencies for every Maven project found
+        run: |
+          # The "|" right after "run:" is YAML's BLOCK SCALAR syntax — it
+          # means "treat everything indented below, across multiple lines,
+          # as one literal multi-line string" (here, a small bash script),
+          # rather than YAML trying to parse each line as its own key/value.
+          find . -iname "pom.xml" -not -path "*/node_modules/*" | while IFS= read -r pom; do
+          # "find . -iname "pom.xml"" searches every folder from the
+          # current directory downward (recursively) for files named
+          # pom.xml, case-insensitively ("-iname"). "-not -path
+          # ".../node_modules/*"" excludes anything inside a node_modules
+          # folder, so we don't waste time on some dependency's bundled
+          # sample project. The "|" pipes that list of found file paths,
+          # one per line, into a "while" LOOP: "read -r pom" reads one
+          # line at a time into a variable called $pom, "IFS=" prevents
+          # bash from trimming leading/trailing whitespace off each line,
+          # and "-r" stops backslashes from being treated as escape
+          # characters. This is the bash idiom for "do something once for
+          # every file found," since a workflow written ahead of time
+          # can't know how many pom.xml files exist.
+            echo "Resolving $pom"
+            # Prints a log line so you can see progress for each project
+            # found, when reading the Actions run log later.
+            mvn -B -f "$pom" dependency:resolve || true
+            # Same Maven command as the targeted file's Java job, but
+            # "-f "$pom"" points Maven at a SPECIFIC pom.xml file rather
+            # than relying on "working-directory" (since this job doesn't
+            # know the path ahead of time — it was just discovered by
+            # "find" above). "|| true" means "if this command fails, don't
+            # treat that as a script failure" — it lets the loop keep going
+            # to the next pom.xml even if one project can't be resolved,
+            # instead of aborting the whole step.
+          done
+          # Closes the "while...do" loop opened above — standard bash
+          # syntax, not YAML.
+      - name: snyk test --all-projects
+        run: snyk test --all-projects --severity-threshold=high --sarif-file-output=snyk-sca-all.sarif
+        # NEW flag: "--all-projects" tells the Snyk CLI to walk the entire
+        # current directory itself, auto-detecting every manifest type it
+        # recognizes (package.json, requirements.txt, pom.xml, etc.) rather
+        # than being pointed at one specific file/folder the way the
+        # targeted file's three separate sca-js/python/java jobs are.
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-sca-all.sarif
+          category: snyk-sca-all
+      - name: snyk monitor --all-projects
+        if: github.event_name != 'pull_request'
+        # "!=" is the NOT-EQUAL operator — the opposite check from the
+        # targeted file's "== 'push'" conditions. This says "run on
+        # anything EXCEPT a pull request" (so: the scheduled run, or a
+        # manual workflow_dispatch run), which is simpler to write here
+        # since there's no "push" trigger at all to also filter for.
+        run: snyk monitor --all-projects
+        # Same "--all-projects" idea applied to monitor instead of test —
+        # uploads a snapshot of every detected project to Snyk's platform
+        # in one command.
+
+  code:
+    name: Static analysis (Snyk Code, whole repo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: snyk code test
+        run: snyk code test . --severity-threshold=high --sarif-file-output=snyk-code-all.sarif
+        # The argument is "." (current directory = repo root) instead of
+        # "Code" like the targeted file — this is the literal difference
+        # between "scoped to one folder" and "the whole repo," expressed
+        # as simply as changing one argument.
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-code-all.sarif
+          category: snyk-code-all
+
+  container:
+    name: Container (every Dockerfile found, whole repo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: Discover and scan every Dockerfile
+        run: |
+          mkdir -p sarif-results
+          # Creates a folder to collect one SARIF file per Dockerfile
+          # found. "-p" means "don't error if it already exists, and
+          # create any missing parent folders too."
+          status=0
+          # A plain bash variable, initialized to 0 (success), used to
+          # remember whether ANY Dockerfile in the loop below failed its
+          # scan — since the loop itself can't "fail the whole step" the
+          # instant one iteration fails without also skipping the rest.
+          find . -iname "Dockerfile*" -not -path "*/node_modules/*" | while IFS= read -r dockerfile; do
+          # Same find-and-loop idiom as the sca job above, but matching
+          # any file whose name starts with "Dockerfile" (the "*" wildcard
+          # also catches names like "Dockerfile.arm" or "Dockerfile-dev").
+            base_image=$(grep -im1 '^FROM' "$dockerfile" | awk '{print $2}')
+            # "$( ... )" is bash COMMAND SUBSTITUTION — it runs the command
+            # inside and captures its printed output into a variable.
+            # "grep -im1 '^FROM' "$dockerfile"" searches the file for the
+            # first line ("-m1" = max 1 match) starting with "FROM"
+            # ("^" anchors to line-start), case-insensitively ("-i").
+            # That matched line (e.g. "FROM node:6-stretch") is piped into
+            # "awk '{print $2}'", which splits the line on whitespace and
+            # prints just the 2nd word — i.e. just "node:6-stretch",
+            # without the word "FROM". The result is stored in $base_image.
+            safe_name=$(echo "$dockerfile" | tr '/.' '__')
+            # "tr '/.' '__'" replaces every "/" or "." character with "_".
+            # A path like "./Code/test/smoke/Dockerfile" becomes something
+            # like "__Code_test_smoke_Dockerfile" — safe to use as a plain
+            # filename, since the original path contains slashes that
+            # would otherwise be misread as folders.
+            echo "Scanning $dockerfile (base image: $base_image)"
+            docker pull "$base_image" || true
+            # Same "|| true" idiom as before: don't let one image's pull
+            # failure kill the whole loop.
+            snyk container test "$base_image" --file="$dockerfile" \
+              --severity-threshold=high \
+              --sarif-file-output="sarif-results/${safe_name}.sarif" || status=1
+            # The trailing "\" at the end of a line is bash's LINE
+            # CONTINUATION character — it tells bash "this command isn't
+            # finished yet, keep reading the next line as part of it."
+            # It's purely a readability choice, splitting one long command
+            # across three lines. "${safe_name}" is the same as "$safe_name"
+            # — the curly braces just make the variable's boundary explicit,
+            # useful right before the literal ".sarif" so bash doesn't try
+            # to read "safe_name.sarif" as one variable name. If this scan
+            # fails, "|| status=1" records that failure in our tracking
+            # variable instead of stopping the loop.
+          done
+          exit "$status"
+          # After the loop finishes checking every Dockerfile, exit this
+          # shell script with $status's final value. If ANY Dockerfile
+          # failed its scan, $status is 1, and a non-zero exit code here
+          # is what makes GitHub mark this whole step (and job) as failed —
+          # even though the loop itself kept running instead of stopping
+          # at the first failure.
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: sarif-results
+          # NEW vs. every other job in both files: this points at a
+          # FOLDER, not a single file. Because the loop above can produce
+          # a different number of .sarif files depending on how many
+          # Dockerfiles exist, upload-sarif is told to upload every .sarif
+          # file inside that directory at once, whatever ends up in there.
+          category: snyk-container-all
+
+  iac:
+    name: Infrastructure as Code (whole repo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: snyk iac test
+        run: snyk iac test . --severity-threshold=high --sarif-file-output=snyk-iac-all.sarif
+        # Argument is "." (whole repo) instead of "IaC" or
+        # ".github/workflows" like the two separate targeted-file jobs —
+        # one command covers both of those cases plus anything else Snyk
+        # IaC recognizes anywhere in the repo.
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-iac-all.sarif
+          category: snyk-iac-all
+      - name: snyk iac monitor
+        if: github.event_name != 'pull_request'
+        run: snyk iac test . --report --project-name=goof-platform-iac-all

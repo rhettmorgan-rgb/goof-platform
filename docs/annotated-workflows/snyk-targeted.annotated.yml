@@ -1,0 +1,370 @@
+# ============================================================================
+# ANNOTATED REFERENCE COPY — not read by GitHub Actions as a real workflow
+# unless you remove ".annotated" from the filename. This file exists purely
+# so every line is explained; the actual working file is snyk-targeted.yml.
+# ============================================================================
+
+name: Snyk Security Scan
+# "name:" — a top-level key. This is the label shown in GitHub's Actions tab
+# for the whole workflow. "key: value" is YAML's basic building block —
+# think of it like a dictionary/hash entry.
+
+on:
+# "on:" starts a mapping (a set of key-value pairs) describing what TRIGGERS
+# this workflow. Because there's no value directly after the colon, the
+# value is everything indented underneath — YAML uses indentation instead
+# of braces {} the way JSON or C-family languages do.
+  push:
+  # Indented one level under "on:" — this key belongs to "on". Fires when
+  # code is pushed.
+    branches: [main]
+    # "[main]" is YAML's inline-list syntax — square brackets are a list on
+    # one line, equivalent to writing a dash-list across multiple lines.
+    # This restricts the push trigger to only the "main" branch.
+  pull_request:
+  # A second key under "on:". No value/indentation follows it, meaning
+  # "trigger on pull requests with default settings" (any branch, any PR
+  # action like opened/synchronize).
+  schedule:
+  # A third trigger type: run on a timer, independent of any git activity.
+    - cron: "0 6 * * 1"
+    # The "-" makes this a LIST item (schedule can have multiple cron
+    # entries). "cron:" is a key inside that list item's mapping.
+    # "0 6 * * 1" is standard cron syntax: minute=0, hour=6, day-of-month=*
+    # (any), month=* (any), day-of-week=1 (Monday) — i.e. 6:00 AM every Monday.
+
+env:
+# Top-level key: environment variables available to every step in every
+# job below, unless a job/step overrides them.
+  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  # "${{ ... }}" is GitHub Actions' expression syntax — it evaluates
+  # whatever's inside at runtime. "secrets.SNYK_TOKEN" pulls the encrypted
+  # secret you configure in the repo's Settings > Secrets. The Snyk CLI
+  # automatically reads the SNYK_TOKEN env var for authentication, so we
+  # never have to write a token into the file itself.
+
+jobs:
+# Top-level key: everything that actually runs lives under here, organized
+# into named jobs. Jobs run in PARALLEL by default (no ordering) unless you
+# add a "needs:" key to make one wait on another — this file doesn't use
+# "needs", so all 8 jobs below kick off at the same time.
+
+  sca-js:
+  # This is the job's ID (an arbitrary name YOU choose — "sca-js" isn't a
+  # GitHub keyword, it's just an identifier used to reference this job
+  # elsewhere and to label it in the UI).
+    name: SCA / JavaScript (SCA/JS)
+    # A human-friendly display name shown in the Actions UI, separate from
+    # the "sca-js" ID above.
+    runs-on: ubuntu-latest
+    # Which virtual machine image GitHub spins up to run this job's steps.
+    # "ubuntu-latest" is GitHub-hosted; you could also target windows-latest,
+    # macos-latest, or a self-hosted runner.
+    steps:
+    # A LIST (note the dashes below) of actions to run in order, top to
+    # bottom, within this one job's virtual machine.
+      - uses: actions/checkout@v4
+        # "uses:" runs a pre-built, reusable Action (someone else's packaged
+        # automation) instead of a raw shell command. "actions/checkout" is
+        # GitHub's official action that downloads your repo's code onto the
+        # runner — without this step, the VM starts completely empty.
+        # "@v4" pins which released VERSION of that action to use.
+      - uses: actions/setup-node@v4
+        # Installs Node.js onto the runner so later steps can use `npm`.
+        with:
+        # "with:" passes input parameters into the action being "used" —
+        # think of it like function arguments.
+          node-version: 20
+          # Tells setup-node which Node.js major version to install.
+      - run: npm install -g snyk
+        # "run:" is the other kind of step — instead of a packaged Action,
+        # this just executes a literal shell command on the runner.
+        # This one installs the Snyk CLI globally via npm so the `snyk`
+        # command becomes available in later steps.
+      - name: snyk test
+        # An optional label for THIS step, shown in logs — distinct from
+        # the job-level "name:" above; every step can have its own.
+        working-directory: SCA/JS
+        # Changes which folder the "run:" command below executes from —
+        # equivalent to `cd SCA/JS` before running it. Without this, Snyk
+        # would look for a package.json in the repo root and find nothing.
+        run: snyk test --severity-threshold=high --sarif-file-output=snyk-sca-js.sarif
+        # The actual scan command. "--severity-threshold=high" makes the
+        # command exit with a non-zero (failure) code if it finds a high or
+        # critical issue — that failure is what turns this job red in
+        # GitHub's UI and can block a PR. "--sarif-file-output=..." asks
+        # Snyk to ALSO write its results in SARIF format (a standard JSON
+        # schema for static-analysis results) to that filename, for the
+        # next step to pick up.
+      - name: Upload SARIF
+        if: always()
+        # "if:" is a CONDITION — this step only runs when the expression is
+        # true. "always()" is a built-in function meaning "run even if an
+        # earlier step in this job failed." Without it, a failed snyk test
+        # (which is the whole point — it's supposed to fail on real findings)
+        # would skip this upload, and you'd never see the results in GitHub's
+        # Security tab.
+        uses: github/codeql-action/upload-sarif@v3
+        # Another reusable Action, this one owned by GitHub, that reads a
+        # SARIF file and feeds it into the repo's "Security" tab.
+        with:
+          sarif_file: SCA/JS/snyk-sca-js.sarif
+          # Path to the file written by the snyk test step above. Note it's
+          # prefixed with SCA/JS/ here, even though that step used
+          # working-directory to write it — this upload-sarif step does NOT
+          # inherit that working-directory, so the path must be given
+          # relative to the repo root.
+          category: snyk-sca-js
+          # A label distinguishing this SARIF upload from all the others in
+          # the workflow — without unique categories, each job's upload
+          # would overwrite the previous one's results in the Security tab.
+      - name: snyk monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        # "github.ref" and "github.event_name" are built-in context
+        # variables GitHub provides automatically — no setup needed.
+        # "github.ref" is the full name of the branch/tag being acted on;
+        # "refs/heads/main" is its full form (not just "main"). "&&" is
+        # logical AND. Together this condition means: only run this step
+        # when the workflow was triggered by an actual push TO main —
+        # skip it for pull requests or the weekly schedule, since those
+        # shouldn't update Snyk's tracked "current state" of the project.
+        working-directory: SCA/JS
+        run: snyk monitor --project-name=goof-platform-sca-js
+        # Unlike "snyk test" (a one-off pass/fail check), "snyk monitor"
+        # uploads a snapshot to your Snyk account so it keeps tracking this
+        # project over time and can alert you later if a NEW vulnerability
+        # is disclosed in a dependency you already have — even if nothing
+        # in your code changes. "--project-name" is just a label so it's
+        # identifiable in the Snyk web UI.
+
+  sca-python:
+  # Same shape as sca-js above. Comments here only cover what's DIFFERENT.
+    name: SCA / Python (SCA/Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4        # same as sca-js: pulls repo code onto the runner
+      - uses: actions/setup-node@v4      # Snyk CLI is an npm package, so Node is needed even for a Python scan
+        with:
+          node-version: 20               # Node version for installing the snyk CLI itself
+      - run: npm install -g snyk         # installs the Snyk CLI globally
+      - name: snyk test
+        run: snyk test --file=SCA/Python/requirements.txt --package-manager=pip --severity-threshold=high --sarif-file-output=snyk-sca-python.sarif
+        # No "working-directory" this time — instead the manifest's path is
+        # given directly via "--file=". "--package-manager=pip" tells Snyk
+        # which ecosystem parser to use, since a bare "requirements.txt"
+        # filename doesn't self-identify as Python the way "package.json"
+        # does for Node — Snyk needs the hint.
+      - name: Upload SARIF
+        if: always()                     # same meaning as sca-js: run even if the test step above failed
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-sca-python.sarif   # written to repo root this time, since no working-directory was set
+          category: snyk-sca-python           # unique label, distinct from every other job's category
+      - name: snyk monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'   # only on a real push to main
+        run: snyk monitor --file=SCA/Python/requirements.txt --package-manager=pip --project-name=goof-platform-sca-python
+        # Same --file/--package-manager hint needed here too, for the same
+        # reason as the snyk test step above.
+
+  sca-java:
+  # Same shape again. Only the two new steps (setup-java, Maven resolve) get
+  # full explanations; everything else matches sca-js.
+    name: SCA / Java (SCA/Java/todolist-web-struts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4          # same as sca-js
+      - uses: actions/setup-java@v4
+        # NEW: installs a Java Development Kit onto the runner. Snyk's Java
+        # scanner needs an actual working Maven toolchain present — it can't
+        # build a dependency tree from the pom.xml file alone the way it can
+        # read a Python requirements.txt as plain text.
+        with:
+          distribution: temurin
+          # Which JDK build/vendor to install. "temurin" (Eclipse Adoptium)
+          # is a common free, open-source OpenJDK distribution.
+          java-version: "11"
+          # In quotes because YAML would otherwise sometimes parse "11" as
+          # the number 11 rather than a version string — quoting forces
+          # it to stay a string, which the action expects.
+      - uses: actions/setup-node@v4        # still needed: the snyk CLI itself is an npm package
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: Resolve Maven dependencies
+        working-directory: SCA/Java/todolist-web-struts
+        run: mvn -B dependency:resolve
+        # NEW: "mvn" is the Maven build tool (comes preinstalled on GitHub's
+        # ubuntu-latest runners). "-B" means "batch mode" — suppresses
+        # interactive prompts, since nothing in CI can respond to them.
+        # "dependency:resolve" downloads every jar this project depends on
+        # into a local cache, without actually compiling any code. Snyk
+        # needs those jars physically present to build an accurate
+        # dependency tree for the scan below.
+      - name: snyk test
+        working-directory: SCA/Java/todolist-web-struts
+        run: snyk test --severity-threshold=high --sarif-file-output=snyk-sca-java.sarif
+        # No --file or --package-manager flag needed here — Snyk auto-
+        # detects pom.xml as Maven once it's in the working directory.
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: SCA/Java/todolist-web-struts/snyk-sca-java.sarif
+          category: snyk-sca-java
+      - name: snyk monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        working-directory: SCA/Java/todolist-web-struts
+        run: snyk monitor --project-name=goof-platform-sca-java
+
+  code:
+  # A different kind of scan: static analysis of the code you WROTE, rather
+  # than the third-party dependencies you rely on.
+    name: Static analysis (Snyk Code / Code dir)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4        # still just needed to install the CLI itself
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: snyk code test
+        run: snyk code test Code --severity-threshold=high --sarif-file-output=snyk-code.sarif
+        # "Code" here is a plain command-line ARGUMENT (the folder to scan),
+        # not a flag — no leading "--". Snyk Code recursively reads every
+        # source file under that folder looking for vulnerable code
+        # patterns (like SQL injection or path traversal), rather than
+        # checking a dependency manifest.
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-code.sarif
+          category: snyk-code
+      # NOTE: there is deliberately no "snyk monitor" step in this job.
+      # Monitoring tracks a dependency list so Snyk can alert you later if
+      # a NEW public vulnerability is found in something you already use —
+      # that concept doesn't apply to your own source code, which only
+      # changes when you actually edit it.
+
+  container:
+  # Scans a Docker base image for known vulnerabilities.
+    name: Container (Container/Dockerfile base image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      # The Dockerfile's build context isn't self-contained in this repo (COPY .
+      # expects an app source tree that isn't checked in under Container/), so we
+      # scan the base image it declares (node:6-stretch) plus Dockerfile hygiene
+      # instead of building a derived image.
+      # (^ this comment block is a real decision note, not a syntax explainer —
+      # it exists in the actual working file too, unlike the teaching comments
+      # elsewhere in this annotated copy.)
+      - run: docker pull node:6-stretch
+        # NEW: uses Docker itself (preinstalled on GitHub's runners) to
+        # download the image from Docker Hub onto the runner. Snyk can't
+        # scan an image that isn't physically present on the machine yet.
+      - name: snyk container test
+        run: snyk container test node:6-stretch --file=Container/Dockerfile --severity-threshold=high --sarif-file-output=snyk-container.sarif
+        # "node:6-stretch" (no leading --) is the image reference being
+        # scanned. "--file=Container/Dockerfile" additionally has Snyk read
+        # the Dockerfile itself, checking things like "are you running as
+        # root" or "could you use a smaller base image" — Dockerfile
+        # hygiene, on top of the image's known CVEs.
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-container.sarif
+          category: snyk-container
+      - name: snyk container monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: snyk container monitor node:6-stretch --file=Container/Dockerfile --project-name=goof-platform-container
+        # "container monitor" (two words, a subcommand of container) is the
+        # image-scanning equivalent of the plain "snyk monitor" used in the
+        # SCA jobs above — same idea, different subcommand for images.
+
+  container-smoke:
+  # Identical pattern to the "container" job above, pointed at a second
+  # Dockerfile discovered elsewhere in the repo (Code/test/smoke/Dockerfile),
+  # which declares a different, smaller base image (alpine, not node:6-stretch).
+    name: Container (Code/test/smoke/Dockerfile base image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - run: docker pull alpine
+      - name: snyk container test
+        run: snyk container test alpine --file=Code/test/smoke/Dockerfile --severity-threshold=high --sarif-file-output=snyk-container-smoke.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-container-smoke.sarif
+          category: snyk-container-smoke     # must differ from "snyk-container" above, or one upload overwrites the other
+      - name: snyk container monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: snyk container monitor alpine --file=Code/test/smoke/Dockerfile --project-name=goof-platform-container-smoke
+
+  iac:
+  # Scans Infrastructure-as-Code files (Terraform, Kubernetes manifests,
+  # etc.) for security misconfigurations — different from all the jobs
+  # above, since there's no "dependency" or "running code" involved, just
+  # config files describing what infrastructure SHOULD look like.
+    name: Infrastructure as Code (IaC/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: snyk iac test
+        run: snyk iac test IaC --severity-threshold=high --sarif-file-output=snyk-iac.sarif
+        # "IaC" (no --) is the folder argument again, same pattern as the
+        # "code" job's "Code" argument — Snyk walks that folder looking for
+        # .tf, .yaml, .json, etc. files it recognizes as infrastructure config.
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-iac.sarif
+          category: snyk-iac
+      - name: snyk iac monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: snyk iac test IaC --report --project-name=goof-platform-iac
+        # NEW pattern: "snyk iac" has no separate "monitor" subcommand the
+        # way SCA and container scanning do. Instead, adding "--report" to
+        # the same "test" command uploads the results to Snyk's platform
+        # as a side effect, which is IaC's equivalent of monitoring.
+
+  iac-workflows:
+  # Same exact pattern as the "iac" job above, just pointed at a different
+  # folder: ".github/workflows" instead of "IaC". Snyk IaC treats GitHub
+  # Actions workflow files as a supported config type too, checking for
+  # things like unpinned action versions or overly broad permissions.
+    name: Infrastructure as Code (.github/workflows/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g snyk
+      - name: snyk iac test
+        run: snyk iac test .github/workflows --severity-threshold=high --sarif-file-output=snyk-iac-workflows.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-iac-workflows.sarif
+          category: snyk-iac-workflows
+      - name: snyk iac monitor
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: snyk iac test .github/workflows --report --project-name=goof-platform-iac-workflows
