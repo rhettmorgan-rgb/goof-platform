@@ -158,6 +158,12 @@ jobs:
         with:
           sarif_file: snyk-code-all.sarif
           category: snyk-code-all
+      - name: snyk code report
+        if: always() && github.event_name != 'pull_request'
+        run: snyk code test . --report --project-name=goof-platform-code-all --target-name=rhettmorgan-rgb/goof-platform
+        # "--report" is Snyk Code's equivalent of "monitor" - see
+        # snyk-targeted.annotated.yml for the full explanation, including the
+        # View Ignores permission it requires.
 
   container:
     name: Container (every Dockerfile found, whole repo)
@@ -171,6 +177,10 @@ jobs:
       - name: Authenticate (OAuth service account)   # every job runs on its own fresh VM, so each must authenticate
         run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: Discover and scan every Dockerfile
+        env:
+          REPORT_TO_SNYK: ${{ github.event_name != 'pull_request' }}
+          # GitHub evaluates this expression to the string "true" or "false"
+          # and hands it to the shell as a normal environment variable.
         run: |
           mkdir -p sarif-results
           # Creates a folder to collect one SARIF file per Dockerfile
@@ -208,6 +218,17 @@ jobs:
             snyk container test "$base_image" --file="$dockerfile" \
               --severity-threshold=high \
               --sarif-file-output="sarif-results/${safe_name}.sarif" || status=1
+            # Report each image to the Snyk platform too, not just fail on it.
+            # This lives INSIDE the loop rather than as its own step, because
+            # the set of images isn't known until "find" discovers them - a
+            # step-level "if:" can't express "once per discovered file".
+            # That's also why the condition is passed in as an environment
+            # variable (REPORT_TO_SNYK) and tested with shell "if": step-level
+            # if: applies to the whole step, not to individual loop iterations.
+            if [ "$REPORT_TO_SNYK" = "true" ]; then
+              snyk container monitor "$base_image" --file="$dockerfile" \
+                --project-name="goof-platform${safe_name}" || echo "monitor failed: $dockerfile"
+            fi
             # The trailing "\" at the end of a line is bash's LINE
             # CONTINUATION character — it tells bash "this command isn't
             # finished yet, keep reading the next line as part of it."

@@ -337,6 +337,26 @@ jobs:
         with:
           sarif_file: snyk-code.sarif
           category: snyk-code
+      - name: snyk code report
+        if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: snyk code test Code --report --project-name=goof-platform-code --target-name=rhettmorgan-rgb/goof-platform
+        # Snyk Code has no "monitor" subcommand the way SCA and container
+        # scanning do - "--report" on the test command is its equivalent,
+        # publishing findings to the Snyk Web UI so they can be triaged and
+        # ignored there (and so ignores set in the UI are respected by future
+        # CLI runs).
+        #
+        # This re-runs the scan rather than reusing the earlier result,
+        # because the gate step above filters to high+ severity while this
+        # reports the full picture.
+        #
+        # Requires the "View Ignores" permission on the service account's
+        # role - without it this returns 403 Forbidden, since reporting has
+        # to read existing ignore state.
+        #
+        # "--target-name" groups the project under a named target in the UI
+        # so it sits alongside the other scans of this repo instead of
+        # floating on its own.
       # NOTE: there is deliberately no "snyk monitor" step in this job.
       # Monitoring tracks a dependency list so Snyk can alert you later if
       # a NEW public vulnerability is found in something you already use —

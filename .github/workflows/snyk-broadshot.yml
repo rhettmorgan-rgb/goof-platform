@@ -74,6 +74,9 @@ jobs:
         with:
           sarif_file: snyk-code-all.sarif
           category: snyk-code-all
+      - name: snyk code report
+        if: always() && github.event_name != 'pull_request'
+        run: snyk code test . --report --project-name=goof-platform-code-all --target-name=rhettmorgan-rgb/goof-platform
 
   container:
     name: Container (every Dockerfile found, whole repo)
@@ -87,6 +90,8 @@ jobs:
       - name: Authenticate (OAuth service account)
         run: snyk auth --auth-type=oauth --client-id="$SNYK_OAUTH_CLIENT_ID" --client-secret="$SNYK_OAUTH_CLIENT_SECRET"
       - name: Discover and scan every Dockerfile
+        env:
+          REPORT_TO_SNYK: ${{ github.event_name != 'pull_request' }}
         run: |
           mkdir -p sarif-results
           status=0
@@ -98,6 +103,13 @@ jobs:
             snyk container test "$base_image" --file="$dockerfile" \
               --severity-threshold=high \
               --sarif-file-output="sarif-results/${safe_name}.sarif" || status=1
+            # Report each image to the Snyk platform as well as failing the
+            # build on it. Named after the Dockerfile path so the projects are
+            # distinguishable in the Snyk UI.
+            if [ "$REPORT_TO_SNYK" = "true" ]; then
+              snyk container monitor "$base_image" --file="$dockerfile" \
+                --project-name="goof-platform${safe_name}" || echo "monitor failed: $dockerfile"
+            fi
           done
           exit "$status"
       - name: Upload SARIF
