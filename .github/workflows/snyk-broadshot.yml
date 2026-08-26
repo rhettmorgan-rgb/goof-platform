@@ -76,7 +76,7 @@ jobs:
           category: snyk-code-all
       - name: snyk code report
         if: always() && github.event_name != 'pull_request'
-        run: snyk code test . --report --project-name=goof-platform-code-all --target-name=rhettmorgan-rgb/goof-platform
+        run: snyk code test . --report --project-name=goof-platform-code-all --target-name=rhettmorgan-rgb/goof-platform || true
 
   container:
     name: Container (every Dockerfile found, whole repo)

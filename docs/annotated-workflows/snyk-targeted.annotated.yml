@@ -339,7 +339,13 @@ jobs:
           category: snyk-code
       - name: snyk code report
         if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        run: snyk code test Code --report --project-name=goof-platform-code --target-name=rhettmorgan-rgb/goof-platform
+        run: snyk code test Code --report --project-name=goof-platform-code --target-name=rhettmorgan-rgb/goof-platform || true
+        # "|| true" because this step's job is PUBLISHING, not gating.
+        # "snyk code test --report" both scans and reports in one command, so
+        # it still exits non-zero whenever it finds anything - and with no
+        # --severity-threshold here it reports lows too, so it always exits 1.
+        # The build gate already happened in the step above; letting this one
+        # fail as well would just mark the job red twice for the same reason.
         # Snyk Code has no "monitor" subcommand the way SCA and container
         # scanning do - "--report" on the test command is its equivalent,
         # publishing findings to the Snyk Web UI so they can be triaged and

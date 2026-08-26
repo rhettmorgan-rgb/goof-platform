@@ -160,7 +160,9 @@ jobs:
           category: snyk-code-all
       - name: snyk code report
         if: always() && github.event_name != 'pull_request'
-        run: snyk code test . --report --project-name=goof-platform-code-all --target-name=rhettmorgan-rgb/goof-platform
+        run: snyk code test . --report --project-name=goof-platform-code-all --target-name=rhettmorgan-rgb/goof-platform || true
+        # "|| true" - this step publishes rather than gates; see the targeted
+        # annotated file for the full explanation.
         # "--report" is Snyk Code's equivalent of "monitor" - see
         # snyk-targeted.annotated.yml for the full explanation, including the
         # View Ignores permission it requires.

@@ -134,7 +134,7 @@ jobs:
       # account's role, or it returns 403.
       - name: snyk code report
         if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        run: snyk code test Code --report --project-name=goof-platform-code --target-name=rhettmorgan-rgb/goof-platform
+        run: snyk code test Code --report --project-name=goof-platform-code --target-name=rhettmorgan-rgb/goof-platform || true
 
   container:
     name: Container (Container/Dockerfile base image)
